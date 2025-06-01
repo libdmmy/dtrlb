@@ -1,3 +1,3 @@
-__all__ = ['DTRLB']
+__all__ = ['DTRLB', 'Plugin']
 
-from .dtrlb import DTRLB
+from .dtrlb import DTRLB, Plugin
