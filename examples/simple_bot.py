@@ -1,17 +1,8 @@
 from dtrlb import DTRLB
-from dtrlb.plugins import EchoPlugin
-
-def get_config(path) -> dict:
-    with open(path, 'r') as f:
-        import json
-        conf = json.load(f)
-        return conf
-config = get_config('work/config.json')
+from dtrlb.plugins import EchoPlugin, CalcPlugin
 
 bot = DTRLB(
-    token=config['token'],
-    plugins=[EchoPlugin()],
+    plugins=[EchoPlugin(), CalcPlugin()],
 )
-bot.setup_logging()
 
 bot.launch()
