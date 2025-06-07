@@ -6,6 +6,10 @@ import json
 import telebot
 from telebot.types import Message
 
+from typing import TypeVar
+
+T = TypeVar('T')
+
 class Plugin(ABC):
     internal_name: str
     topic_name: str
@@ -13,8 +17,10 @@ class Plugin(ABC):
     dtrlb: 'DTRLB'
     config: dict = {}
 
+    logger: logging.Logger
+
     def __init__(self) -> None:
-        pass    
+        self.logger = logging.getLogger(self.internal_name)
 
     def on_add(self) -> None:
         with open(self.get_config_file_path(), 'r') as f:
@@ -23,19 +29,25 @@ class Plugin(ABC):
         self._refresh_topic_id()
 
     def on_msg(self, msg: Message) -> None:
-        if msg.message_thread_id == self.topic_id:
+        if msg.message_thread_id == getattr(self, 'topic_id', 0):
             self.on_my_topic_msg(msg)
 
     def on_my_topic_msg(self, msg: Message) -> None:
         pass
+
+    def send_message(self, obj: object, **kwargs) -> Message:
+        return self.dtrlb.bot.send_message(self.dtrlb.chat_id, str(obj), message_thread_id=self.topic_id, **kwargs)
  
     def get_my_directory(self) -> Path:
         path = self.dtrlb.plugins_directory / f'{self.internal_name}'
-        path.mkdir(exist_ok=True)
+        path.mkdir(exist_ok=True, parents=True)
 
         return path
     
     def _refresh_topic_id(self):
+        if getattr(self, 'topic_name', None) is None:
+            return
+
         id = self.config.get('topic_id', 0)
 
         if id == 0:
@@ -68,6 +80,7 @@ class DTRLB():
     plugins_directory: Path = Path('./plugins')
 
     config: dict = {}
+    event_log_instance: Plugin
 
     def __init__(self, plugins: list[Plugin]=[]):
         self.setup_logging()
@@ -105,6 +118,15 @@ class DTRLB():
                 return True
         return False
     
+    def get_plugin_instances(self, plugin_class: type[T]) -> list[T]:
+        instances = []
+
+        for plugin in self.plugins:
+            if type(plugin) is plugin_class:
+                instances.append(plugin)
+
+        return instances
+    
     def on_msg(self, msg: Message):
         for plugin in self.plugins:
             try:
@@ -120,9 +142,12 @@ class DTRLB():
     def warn(self, obj: object):
         logging.warning(obj)
 
+    def send_to_event_log(self, obj: object, **kwargs) -> Message:
+        return self.event_log_instance.send_message(obj, parse_mode='Markdown', **kwargs)
+
     def launch(self):
         self.log('Starting up!')
-        self.bot.infinity_polling()
+        self.bot.infinity_polling(allowed_updates=['message', 'chat_member'])
         self.on_terminate()
 
     def on_terminate(self):
@@ -132,7 +157,10 @@ class DTRLB():
 
     def get_config_file_path(self) -> Path:
         path = self.working_directory / 'config.json'
-        path.touch(exist_ok=True)
+        if not path.exists():
+            with open(path, 'x') as f:
+                f.write('{}')
+
         return path
 
     def save_config(self) -> None:
