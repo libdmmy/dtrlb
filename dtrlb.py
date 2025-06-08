@@ -43,6 +43,8 @@ ENGLISH_LOCALE = {
     'forum.event_log': 'event log',
 
     'forum.echo': 'echoes',
+    'forum.calc': 'calculator',
+    'forum.calc.invalid_char': 'invalid character: `{char}`. allowed ones are `0123456789 +-*/`',
 
     'security.untrusted_user': '⚠️ untrusted user detected ⚠️\n\nI banned him for you. my advice is to reset invite links.\n\nid: `{id}`\nname: `{name}`',
 
@@ -53,6 +55,8 @@ RUSSIAN_LOCALE = complete_locale({
     'forum.event_log': 'журнал событий',
 
     'forum.echo': 'эха',
+    'forum.calc': 'калькулятор',
+    'forum.calc.invalid_char': 'данный символ запрещён: `{char}`. разрешены только `0123456789 +-*/`',
 
     'security.untrusted_user': '⚠️ обнаружен неизвестный пользователь ⚠️\n\nвыкинул его из логова за тебя. мой совет таков - сбрось ссылки приглашений.\n\nайди: `{id}`\nимя: `{name}`',
 
@@ -84,13 +88,27 @@ def ensure_we_have_following_forum(codename: str, display_name: str):
 
 ensure_we_have_following_forum('event_log', current_locale['forum.event_log'])
 ensure_we_have_following_forum('echo', current_locale['forum.echo'])
+ensure_we_have_following_forum('calc', current_locale['forum.calc'])
 
 @bot.message_handler(func=handle_in_forum('echo'))
 def on_echo_msg(msg: Message):
     bot.reply_to(msg, str(msg.text))
 
+@bot.message_handler(func=handle_in_forum('calc'))
+def on_calc_msg(msg: Message):
+    for c in str(msg.text):
+        if c not in '0123456789 +-*/':
+            bot.reply_to(msg, current_locale['forum.calc.invalid_char'].format(char=c), parse_mode='Markdown')
+            return
+    
+    try:
+        bot.reply_to(msg, eval(str(msg.text)))
+    except Exception as e:
+        bot.reply_to(msg, f'`{e.__class__.__name__}: {e}`', parse_mode='Markdown')
+
 # === SECURITY ===
-@bot.chat_member_handler(func=lambda e: e.new_chat_member is not None and e.new_chat_member.status == 'member')
+@bot.chat_member_handler(func=lambda e: e.new_chat_member is not None and e.new_chat_member.status == 'member'
+                         and e.new_chat_member.user.id != bot.user.id)
 def on_chat_member(event: ChatMemberUpdated):
     if event.new_chat_member.user.id not in trusted_users:
         write_into_event_log(current_locale['security.untrusted_user'].format(id=event.new_chat_member.user.id,
