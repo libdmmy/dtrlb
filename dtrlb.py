@@ -1,13 +1,22 @@
 from telebot import TeleBot
 from telebot.types import ChatMemberUpdated, Message
 
+import os
 import json
 import pathlib
 import sys
 
+import yt_dlp
+ydl_opts = {
+    'format': '397',
+    'outtmpl': os.path.join('temp', '%(title)s.%(ext)s'),
+}
+
 import logging
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger('dtrlb')
+
+pathlib.Path('./temp').mkdir(exist_ok=True)
 
 # === CONFIGURATION ===
 config_path = pathlib.Path('./config.json')
@@ -46,6 +55,8 @@ ENGLISH_LOCALE = {
     'forum.calc': 'calculator',
     'forum.calc.invalid_char': 'invalid character: `{char}`. allowed ones are `0123456789 +-*/`',
 
+    'forum.yt-dlp': 'yt-dlp',
+
     'security.untrusted_user': '⚠️ untrusted user detected ⚠️\n\nI banned him for you. my advice is to reset invite links.\n\nid: `{id}`\nname: `{name}`',
 
     'generic.starting': 'starting up!',
@@ -83,12 +94,13 @@ def ensure_we_have_following_forum(codename: str, display_name: str):
     if codename not in config['forums']:
         logger.info(current_locale['generic.topic_wasnt_found'].format(topic=codename))
         config['forums'][codename] = bot.create_forum_topic(lair_id, display_name).message_thread_id
+        save_config()
 
 # === TOPICS ===
-
 ensure_we_have_following_forum('event_log', current_locale['forum.event_log'])
 ensure_we_have_following_forum('echo', current_locale['forum.echo'])
 ensure_we_have_following_forum('calc', current_locale['forum.calc'])
+ensure_we_have_following_forum('yt-dlp', current_locale['forum.yt-dlp'])
 
 @bot.message_handler(func=handle_in_forum('echo'))
 def on_echo_msg(msg: Message):
@@ -105,6 +117,23 @@ def on_calc_msg(msg: Message):
         bot.reply_to(msg, eval(str(msg.text)))
     except Exception as e:
         bot.reply_to(msg, f'`{e.__class__.__name__}: {e}`', parse_mode='Markdown')
+
+@bot.message_handler(func=handle_in_forum('yt-dlp'))
+def on_ytdlp_msg(msg: Message):
+    progress_msg = bot.reply_to(msg, '⏳')
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(str(msg.text), download=True)
+        file_path = ydl.prepare_filename(info)
+
+        with open(file_path, 'rb') as f:
+            bot.send_video(config['tg_superchat_id'], f, 
+                           message_thread_id=config['forums']['yt-dlp'],
+                           reply_to_message_id=msg.id)
+        
+        os.remove(file_path)
+
+    bot.delete_message(chat_id=config['tg_superchat_id'], message_id=progress_msg.id)
 
 # === SECURITY ===
 @bot.chat_member_handler(func=lambda e: e.new_chat_member is not None and e.new_chat_member.status == 'member'
