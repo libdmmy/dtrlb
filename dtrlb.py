@@ -160,12 +160,13 @@ def on_ytdlp_msg(msg: Message):
     with open(video_path, 'rb') as f:
         bot.send_video(lair_id, f,
                        width=width, height=height, duration=duration,
-                       thumbnail=thumbnail,
                        caption=info_string,
                        supports_streaming=True,
-                       message_thread_id=config['forums']['yt-dlp'])
+                       message_thread_id=config['forums']['yt-dlp'],
+                       parse_mode='HTML')
 
     os.remove(video_path)
+    bot.delete_message(lair_id, progress_msg.id)
     bot.delete_message(lair_id, msg.id)
 
 # === SECURITY ===
