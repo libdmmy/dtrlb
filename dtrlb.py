@@ -1,16 +1,14 @@
 from telebot import TeleBot
-from telebot.types import ChatMemberUpdated, Message
+from telebot.types import ChatMemberUpdated, Message, InputMediaPhoto, LinkPreviewOptions
 
 import os
 import json
 import pathlib
 import sys
 
-import yt_dlp
-ydl_opts = {
-    'format': '397',
-    'outtmpl': os.path.join('temp', '%(title)s.%(ext)s'),
-}
+#from pprint import pprint
+
+import ydl
 
 import logging
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
@@ -78,7 +76,7 @@ current_locale = RUSSIAN_LOCALE
 
 # === SOME LOGIC IDK ===
 def write_into_event_log(text: str):
-    bot.send_message(config['tg_superchat_id'], text, parse_mode='Markdown', message_thread_id=config['forums']['event_log'])
+    bot.send_message(lair_id, text, parse_mode='Markdown', message_thread_id=config['forums']['event_log'])
 
 def handle_in_forum(codename: str):
     return lambda m: m.message_thread_id == config['forums'][codename]
@@ -102,6 +100,7 @@ ensure_we_have_following_forum('echo', current_locale['forum.echo'])
 ensure_we_have_following_forum('calc', current_locale['forum.calc'])
 ensure_we_have_following_forum('yt-dlp', current_locale['forum.yt-dlp'])
 
+# === BASIC ===
 @bot.message_handler(func=handle_in_forum('echo'))
 def on_echo_msg(msg: Message):
     bot.reply_to(msg, str(msg.text))
@@ -118,22 +117,54 @@ def on_calc_msg(msg: Message):
     except Exception as e:
         bot.reply_to(msg, f'`{e.__class__.__name__}: {e}`', parse_mode='Markdown')
 
+# === DOWNLOADERS ===
 @bot.message_handler(func=handle_in_forum('yt-dlp'))
 def on_ytdlp_msg(msg: Message):
-    progress_msg = bot.reply_to(msg, '⏳')
+    progress_msg = bot.reply_to(msg, 'fetching information...')
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(str(msg.text), download=True)
-        file_path = ydl.prepare_filename(info)
+    info = ydl.get_information(url=str(msg.text))
 
-        with open(file_path, 'rb') as f:
-            bot.send_video(config['tg_superchat_id'], f, 
-                           message_thread_id=config['forums']['yt-dlp'],
-                           reply_to_message_id=msg.id)
-        
-        os.remove(file_path)
+    title = info['title']
+    thumbnail = info['thumbnail']
+    url = info['webpage_url']
+    duration = info['duration']
+    duration_str = info['duration_string']
 
-    bot.delete_message(chat_id=config['tg_superchat_id'], message_id=progress_msg.id)
+    width = info['width']
+    height = info['height']
+
+    channel = info['channel']
+    channel_url = info['channel_url']
+
+    info_string = f'<strong>{title}</strong> <a href="{url}">🔗</a>\n' + \
+                  f'by #{channel.replace(' ', '_')} <a href="{channel_url}">🔗</a>'
+    
+    status_string = f'\n\n<em>downloading...</em>'
+
+    bot.edit_message_media(message_id=progress_msg.id,
+                           chat_id=lair_id,
+                           media=InputMediaPhoto(thumbnail,
+                                                 caption=info_string + status_string,
+                                                 parse_mode='HTML'))
+    
+    video_path = ydl.download(info)
+
+    status_string = f'\n\n<em>uploading...</em>'
+
+    bot.edit_message_media(message_id=progress_msg.id,
+                           chat_id=lair_id,
+                           media=InputMediaPhoto(thumbnail,
+                                                 caption=info_string + status_string,
+                                                 parse_mode='HTML'))
+
+    with open(video_path, 'rb') as f:
+        bot.send_video(lair_id, f,
+                       width=width, height=height,
+                       thumbnail=thumbnail,
+                       message_thread_id=config['forums']['yt-dlp'])
+
+    os.remove(video_path)
+    bot.delete_message(lair_id, msg.id)
 
 # === SECURITY ===
 @bot.chat_member_handler(func=lambda e: e.new_chat_member is not None and e.new_chat_member.status == 'member'
